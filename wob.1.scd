@@ -23,7 +23,7 @@ wob is a lightweight overlay volume/backlight/progress/anything bar for Wayland.
 *-v*
 	Increase verbosity of messages, defaults to errors and warnings only.
 
-*-t --timeout* <ms> 
+*-t --timeout* <ms>
 	Hide wob after <ms> milliseconds, defaults to 1000.
 
 *-m --max* <%>
@@ -55,6 +55,9 @@ wob is a lightweight overlay volume/backlight/progress/anything bar for Wayland.
 	Define output to show bar on or '\*' for all. If ommited, focused output is chosen.
 	May be specified multiple times.
 
+*-i --images <file.pbm>*
+	Define a PBM image file containing up to 10 images to display if specified in the value.
+
 *--border-color* <#AARRGGBB>
 	Define border color, defaults to #FFFFFFFF.
 
@@ -74,7 +77,16 @@ or
 
 <value> <#background_color> <#border_color> <#bar_color>
 
-Where <value> is number in interval from 0 to *--max* and <#\*color> is color in #AARRGGBB format.
+or
+
+<value> <@image_index>
+
+or
+
+<value> <@image_index> <#background_color> <#border_color> <#bar_color>
+
+Where <value> is number in interval from 0 to *--max* and <#\*color> is color in #AARRGGBB format
+and <@image_index> is the 1-based index of the image in the icons file prefixed with @. @0 will disable the icon.
 
 # ENVIRONMENT
 

@@ -30,6 +30,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <netpbm/pbm.h>
 
 #include "buffer.h"
 #include "color.h"
@@ -38,6 +39,14 @@
 #include "pledge.h"
 #include "wlr-layer-shell-unstable-v1-client-protocol.h"
 #include "xdg-output-unstable-v1-client-protocol.h"
+
+struct pbmimg {
+	bit **bits;
+	int w;
+	int h;
+};
+
+struct pbmimg images[10];
 
 struct wob_geom {
 	unsigned long width;
@@ -438,6 +447,38 @@ wob_draw_border(const struct wob_geom *geom, uint32_t *argb, struct wob_color co
 }
 
 void
+wob_draw_image(const struct wob_geom *geom, int img, uint32_t *argb, struct wob_color bar_color, struct wob_color background_color, unsigned long percentage, unsigned long maximum)
+{
+	if (img < 1 || img > 10 || !images[img-1].bits) {
+		return;
+	}
+	uint32_t argb_bar_color = wob_color_to_argb(wob_color_premultiply_alpha(bar_color));
+	uint32_t argb_background_color = wob_color_to_argb(wob_color_premultiply_alpha(background_color));
+
+	size_t offset_border_padding = geom->border_offset + geom->border_size + geom->bar_padding;
+	size_t bar_width = geom->width - 2 * offset_border_padding;
+	size_t bar_height = geom->height - 2 * offset_border_padding;
+	size_t bar_colored_width = (bar_width * percentage) / maximum;
+
+	uint32_t *pixel, col, row, w, h;
+	bit **bits = images[img-1].bits;
+	w = images[img-1].w;
+	h = images[img-1].h;
+
+	for (row = 0; row < h && row < bar_height; ++row) {
+		pixel = &argb[offset_border_padding * (geom->width + 1) + geom->width * row];
+		for (col = 0; col < w && col < bar_width; ++col) {
+			++pixel;
+			if (bits[row][col] == PBM_BLACK) {
+			   	*pixel = (col < bar_colored_width) ? argb_background_color : argb_bar_color;
+			}
+
+		}
+	}
+
+}
+
+void
 wob_draw_percentage(const struct wob_geom *geom, uint32_t *argb, struct wob_color bar_color, struct wob_color background_color, unsigned long percentage, unsigned long maximum)
 {
 	uint32_t argb_bar_color = wob_color_to_argb(wob_color_premultiply_alpha(bar_color));
@@ -481,6 +522,7 @@ main(int argc, char **argv)
 		"  -h, --help                 Show help message and quit.\n"
 		"  --version                  Show the version number and quit.\n"
 		"  -v                         Increase verbosity of messages, defaults to errors and warnings only\n"
+		"  -i, --images <file.pbm>    Allow showing PBM images (up to 10 from a single file)\n"
 		"  -t, --timeout <ms>         Hide wob after <ms> milliseconds, defaults to " STR(WOB_DEFAULT_TIMEOUT) ".\n"
 		"  -m, --max <%>              Define the maximum percentage, defaults to " STR(WOB_DEFAULT_MAXIMUM) ". \n"
 		"  -W, --width <px>           Define bar width in pixels, defaults to " STR(WOB_DEFAULT_WIDTH) ". \n"
@@ -535,6 +577,7 @@ main(int argc, char **argv)
 				.blue = 1.0,
 			},
 	};
+	unsigned long imageindex = 0;
 	bool pledge = true;
 
 	char *disable_pledge_env = getenv("WOB_DISABLE_PLEDGE");
@@ -549,6 +592,7 @@ main(int argc, char **argv)
 	static struct option long_options[] = {
 		{"help", no_argument, NULL, 'h'},
 		{"version", no_argument, NULL, 4},
+		{"images", required_argument, NULL, 'i'},
 		{"timeout", required_argument, NULL, 't'},
 		{"max", required_argument, NULL, 'm'},
 		{"width", required_argument, NULL, 'W'},
@@ -564,7 +608,7 @@ main(int argc, char **argv)
 		{"bar-color", required_argument, NULL, 3},
 		{"verbose", no_argument, NULL, 'v'},
 	};
-	while ((c = getopt_long(argc, argv, "t:m:W:H:o:b:p:a:M:O:vh", long_options, &option_index)) != -1) {
+	while ((c = getopt_long(argc, argv, "i:t:m:W:H:o:b:p:a:M:O:vh", long_options, &option_index)) != -1) {
 		switch (c) {
 			case 1:
 				if (!wob_parse_color(optarg, &strtoul_end, &(colors.border))) {
@@ -583,6 +627,27 @@ main(int argc, char **argv)
 					wob_log_error("Bar color must be a value between #00000000 and #FFFFFFFF.");
 					return EXIT_FAILURE;
 				}
+				break;
+			case 'i':
+				pm_init("wob", 0);
+				FILE *fimg=fopen(optarg, "r");
+				if (!fimg) {
+					wob_log_error("Image file must be a readable file.");
+					return EXIT_FAILURE;
+				}
+				for (int i=0;i<10;i++) {
+					images[i].bits = pbm_readpbm(fimg, &images[i].w, &images[i].h);
+					int out;
+					pbm_nextimage(fimg, &out);
+					if (images[i].bits == NULL || out) {
+						if (i == 1 && images[i].bits == NULL) {
+							wob_log_error("Image file must be a PBM file.");
+							return EXIT_FAILURE;
+						}
+						break;
+					}
+				}
+				fclose(fimg);
 				break;
 			case 't':
 				timeout_msec = strtoul(optarg, &strtoul_end, 10);
@@ -727,6 +792,7 @@ main(int argc, char **argv)
 	}
 
 	struct wob_colors old_colors;
+	int old_image;
 
 	// Draw these at least once
 	wob_draw_background(app.wob_geom, argb, colors.background);
@@ -799,7 +865,8 @@ main(int argc, char **argv)
 					}
 
 					old_colors = colors;
-					if (!wob_parse_input(input_buffer, &percentage, &colors.background, &colors.border, &colors.bar)) {
+					old_image = imageindex;
+					if (!wob_parse_input(input_buffer, &percentage, &imageindex, &colors.background, &colors.border, &colors.bar)) {
 						wob_log_error("Received invalid input");
 						if (!hidden) wob_hide(&app);
 						wob_destroy(&app);
@@ -835,6 +902,7 @@ main(int argc, char **argv)
 					}
 
 					wob_draw_percentage(app.wob_geom, argb, colors.bar, colors.background, percentage, maximum);
+					wob_draw_image(app.wob_geom, imageindex, argb, colors.bar, colors.background, percentage, maximum);
 
 					wob_flush(&app);
 					hidden = false;

@@ -12,6 +12,7 @@ wayland_protos = dependency('wayland-protocols', version: '>=1.13')
 wl_protocol_dir = wayland_protos.get_pkgconfig_variable('pkgdatadir')
 wayland_scanner = find_program('wayland-scanner')
 wayland_client = dependency('wayland-client')
+netpbm = cc.find_library('netpbm')
 rt = cc.find_library('rt')
 seccomp = dependency('libseccomp', required: get_option('seccomp'))
 
@@ -60,7 +61,7 @@ endforeach
 wob_inc = include_directories('include')
 
 wob_sources = ['main.c', 'parse.c', 'buffer.c', 'log.c', 'color.c']
-wob_dependencies = [xdg_output_unstable_v1, wayland_client, wlr_layer_shell_unstable_v1, xdg_shell, rt]
+wob_dependencies = [xdg_output_unstable_v1, wayland_client, wlr_layer_shell_unstable_v1, xdg_shell, rt, netpbm]
 if seccomp.found()
   wob_dependencies += seccomp
   wob_sources += 'pledge_seccomp.c'
